@@ -1,0 +1,212 @@
+{
+  "main": {
+    "id": "10eccb7902489b71",
+    "type": "split",
+    "children": [
+      {
+        "id": "d75af79a2456d660",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8b309becbd7d56c9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "quantum twin stick shooter/03-ai-system.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "03-ai-system"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "32d5c85196a18d4f",
+    "type": "split",
+    "children": [
+      {
+        "id": "1539f2e27fc3d6bd",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "446237e5b0740310",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "a11c47cd86d9b4b1",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "e2064ba260733d2a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "7a32da71b6e46947",
+    "type": "split",
+    "children": [
+      {
+        "id": "d3a361e0b3f0b5be",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "71c5d42a9c94188b",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "create a link.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for create a link"
+            }
+          },
+          {
+            "id": "7607670f1b4e1d45",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "create a link.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from create a link"
+            }
+          },
+          {
+            "id": "2ee1f67f3c9f53c9",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "20136e6d628b1e95",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "create a link.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of create a link"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "8b309becbd7d56c9",
+  "lastOpenFiles": [
+    "quantum twin stick shooter/README.md",
+    "quantum twin stick shooter/08-unity-integration.md",
+    "quantum arena brawler/06-local-multiplayer.md",
+    "quantum twin stick shooter/07-inventory-system.md",
+    "quantum twin stick shooter/06-game-management-system.md",
+    "quantum twin stick shooter/05-attributes-system.md",
+    "quantum twin stick shooter/04-skills-system.md",
+    "quantum twin stick shooter/03-ai-system.md",
+    "quantum twin stick shooter/02-movement-system.md",
+    "quantum twin stick shooter/01-input-system.md",
+    "quantum twin stick shooter/00-project-overview.md",
+    "quantum twin stick shooter",
+    "quantum arena brawler/07-view-integration.md",
+    "quantum arena brawler/05-game-flow-management.md",
+    "quantum racer/05_BotSystem.md",
+    "quantum racer/02_QTN_Schema.md",
+    "quantum racer/01_Overview.md",
+    "quantum arena brawler/04-player-system.md",
+    "quantum arena brawler/03-ball-handling-system.md",
+    "quantum arena brawler/02-ability-system.md",
+    "quantum arena brawler/01-game-state-definition.md",
+    "quantum arena brawler/00-project-overview.md",
+    "quantum arena brawler",
+    "quantum racer/12_Optimization_Tips.md",
+    "quantum simple fps/07-pickups-system.md",
+    "quantum racer",
+    "quantum motor dome/09-unity-integration.md",
+    "quantum motor dome/08-spawning-system.md",
+    "quantum motor dome/07-scoring-and-reconnection.md",
+    "quantum motor dome",
+    "quantum karts",
+    "quantum simple fps",
+    "quantum_simple_fps_notes",
+    "quantum platform shooter",
+    "photon quantum",
+    "untitled folder",
+    "Untitled 1.canvas",
+    "Untitled.canvas"
+  ]
+}
