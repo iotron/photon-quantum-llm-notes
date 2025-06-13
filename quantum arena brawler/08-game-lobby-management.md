@@ -1,12 +1,90 @@
 # Game Lobby Management - Sports Arena Brawler
 
-Sports Arena Brawler implements a sophisticated lobby system with support for multiple local players joining the same online match. This is particularly useful for couch co-op scenarios where multiple players share a single console/PC.
+Sports Arena Brawler implements a versatile lobby system that supports both **local couch multiplayer** and **online multiplayer with multiple local players**. This dual approach makes it unique among Quantum samples, catering to both party game scenarios and competitive online play.
 
-## Local Multiplayer Lobby Architecture
+## Implementation Modes
 
-### SQL Lobby with Player Count Filtering
+### 1. Local Couch Multiplayer Mode
 
-The game uses Photon's SQL lobby feature to ensure proper matchmaking based on total player slots:
+This mode focuses on instant local play without network requirements, perfect for party gaming scenarios.
+
+#### Core Components
+
+##### LocalPlayersManager
+- Singleton pattern for managing all local players
+- Handles player registration and device assignment
+- Coordinates between Unity's Input System and Quantum's player system
+
+```csharp
+public class LocalPlayersManager : MonoBehaviour
+{
+    public static LocalPlayersManager Instance { get; private set; }
+    
+    [SerializeField] private LocalPlayersConfig[] _localPlayersConfigPrefabs;
+    private Dictionary<int, LocalPlayerAccess> _localPlayerAccessByPlayerIndices = new();
+    
+    public void RegisterPlayer(PlayerInput playerInput)
+    {
+        // Assign next available slot
+        int slot = GetNextAvailableSlot();
+        
+        // Create player access
+        var access = new LocalPlayerAccess
+        {
+            PlayerSlot = slot,
+            PlayerInput = playerInput,
+            DeviceId = playerInput.devices[0].deviceId
+        };
+        
+        _localPlayerAccessByPlayerIndices.Add(slot, access);
+    }
+}
+```
+
+##### Dynamic Join System
+- **Hot-join capability**: Players can join mid-match
+- **Device detection**: Automatically assigns controllers/keyboards
+- **Split-screen adaptation**: Dynamically adjusts camera viewports
+
+```csharp
+public void OnPlayerJoined(PlayerInput playerInput)
+{
+    // Register with LocalPlayersManager
+    var playerAccess = new LocalPlayerAccess
+    {
+        PlayerInput = playerInput,
+        LocalPlayer = CreateLocalPlayer(playerInput)
+    };
+    
+    // Add to Quantum game
+    QuantumRunner.Default.Game.AddPlayer(playerData);
+    
+    // Update split-screen layout
+    CameraManager.Instance.ReconfigureViewports();
+}
+```
+
+#### Local Lobby Flow
+
+1. **Main Menu Scene**
+   - Single "Start Game" button
+   - No traditional lobby UI needed
+   
+2. **Player Registration**
+   - Detects button press on unassigned devices
+   - Creates PlayerInput component
+   - Registers with LocalPlayersManager
+
+3. **In-Game Join**
+   - Unassigned controllers can join anytime
+   - Creates new player entity in Quantum
+   - Spawns character at designated spawn point
+
+### 2. Online Multiplayer Mode
+
+This mode supports multiple local players joining the same online match, using SQL lobbies for sophisticated matchmaking.
+
+#### SQL Lobby Architecture
 
 **File: `/Assets/SportsArenaBrawler/Scripts/Menu/LocalPlayerCountManager.cs`**
 
@@ -16,14 +94,6 @@ public class LocalPlayerCountManager : MonoBehaviour, IInRoomCallbacks
     public const string LOCAL_PLAYERS_PROP_KEY = "LP";
     public const string TOTAL_PLAYERS_PROP_KEY = "C0";
     public static readonly TypedLobby SQL_LOBBY = new TypedLobby("customSqlLobby", LobbyType.Sql);
-    
-    private void UpdateLocalPlayersCount()
-    {
-        _connection.Client?.LocalPlayer.SetCustomProperties(new PhotonHashtable()
-        {
-            { LOCAL_PLAYERS_PROP_KEY, _menuController.GetLastSelectedLocalPlayersCount() }
-        });
-    }
     
     private void UpdateRoomTotalPlayers()
     {
@@ -47,16 +117,11 @@ public class LocalPlayerCountManager : MonoBehaviour, IInRoomCallbacks
 }
 ```
 
-### Custom Connection Behavior
-
-**File: `/Assets/SportsArenaBrawler/Scripts/Menu/SportsArenaBrawlerMenuConnectionBehaviourSDK.cs`**
+#### Custom Connection Behavior
 
 ```csharp
 public class SportsArenaBrawlerMenuConnectionBehaviourSDK : QuantumMenuConnectionBehaviourSDK
 {
-    [SerializeField]
-    private SportsArenaBrawlerLocalPlayerController _localPlayersCountSelector;
-    
     protected override void OnConnect(QuantumMenuConnectArgs connectArgs, ref MatchmakingArguments args)
     {
         // Configure SQL matchmaking
@@ -71,126 +136,13 @@ public class SportsArenaBrawlerMenuConnectionBehaviourSDK : QuantumMenuConnectio
 }
 ```
 
-## Local Player Selection UI
-
-### Player Count Selection
-
-The game allows players to select how many local players will join before matchmaking:
-
-```csharp
-public class SportsArenaBrawlerLocalPlayerController : MonoBehaviour
-{
-    private int _selectedLocalPlayerCount = 1;
-    
-    public int GetLastSelectedLocalPlayersCount() => _selectedLocalPlayerCount;
-    
-    public void SelectLocalPlayerCount(int count)
-    {
-        _selectedLocalPlayerCount = Mathf.Clamp(count, 1, Input.MAX_COUNT);
-        UpdateUI();
-        
-        // Update matchmaking filters
-        UpdateMatchmakingCriteria();
-    }
-}
-```
-
-## Room Property Synchronization
-
-### Master Client Responsibilities
-
-The master client manages total player count across all connected clients:
-
-```csharp
-public void OnPlayerPropertiesUpdate(Player targetPlayer, PhotonHashtable changedProps)
-{
-    if (changedProps.TryGetValue(LOCAL_PLAYERS_PROP_KEY, out object localPlayersCount))
-    {
-        // Recalculate total players when any client updates their local count
-        UpdateRoomTotalPlayers();
-    }
-}
-
-public void OnPlayerLeftRoom(Player otherPlayer)
-{
-    // Update total count when a client disconnects
-    UpdateRoomTotalPlayers();
-}
-```
-
-## Local Players Manager
-
-### Managing Multiple Local Players
-
-**File: `/Assets/SportsArenaBrawler/Scripts/Player/Local Player/LocalPlayersManager.cs`**
-
-```csharp
-public class LocalPlayersManager : MonoBehaviour
-{
-    public static LocalPlayersManager Instance { get; private set; }
-    
-    [SerializeField] private LocalPlayersConfig[] _localPlayersConfigPrefabs;
-    private Dictionary<int, LocalPlayerAccess> _localPlayerAccessByPlayerIndices = new();
-    
-    private void Initialize()
-    {
-        var localPlayerIndices = QuantumRunner.Default.Game.GetLocalPlayers();
-        if(localPlayerIndices.Count == 0) return;
-        
-        // Instantiate appropriate config based on player count
-        LocalPlayersConfig localPlayersConfig = Instantiate(
-            _localPlayersConfigPrefabs[localPlayerIndices.Count - 1], transform);
-            
-        for (int i = 0; i < localPlayerIndices.Count; i++)
-        {
-            LocalPlayerAccess localPlayerAccess = localPlayersConfig.GetLocalPlayerAccess(i);
-            localPlayerAccess.IsMainLocalPlayer = i == 0;
-            
-            _localPlayerAccessByPlayerIndices.Add(localPlayerIndices[i], localPlayerAccess);
-        }
-    }
-    
-    public LocalPlayerAccess InitializeLocalPlayer(PlayerViewController playerViewController)
-    {
-        LocalPlayerAccess localPlayerAccess = GetLocalPlayerAccess(playerViewController.PlayerRef);
-        localPlayerAccess.InitializeLocalPlayer(playerViewController);
-        return localPlayerAccess;
-    }
-}
-```
-
-### Local Player Access Configuration
-
-```csharp
-public class LocalPlayerAccess : MonoBehaviour
-{
-    public bool IsMainLocalPlayer { get; set; }
-    public Camera PlayerCamera { get; private set; }
-    public Canvas PlayerCanvas { get; private set; }
-    
-    public void InitializeLocalPlayer(PlayerViewController playerViewController)
-    {
-        // Configure camera and UI for this local player
-        ConfigureCamera(playerViewController);
-        ConfigureUI(playerViewController);
-        
-        // Set up input handling
-        SetupInputHandling(playerViewController.PlayerRef);
-    }
-}
-```
-
-## Matchmaking Flow
-
-### Connection Process
+#### Online Matchmaking Flow
 
 1. **Player Count Selection**: Players choose how many local players will join
 2. **SQL Filter Generation**: Create filter based on available slots
 3. **Room Search**: Find rooms with enough space for all local players
 4. **Property Sync**: Update room properties with local player count
 5. **Player Creation**: Create multiple RuntimePlayer instances
-
-### Implementation Example
 
 ```csharp
 public async Task ConnectWithLocalPlayers(int localPlayerCount)
@@ -210,7 +162,6 @@ public async Task ConnectWithLocalPlayers(int localPlayerCount)
     {
         RuntimePlayers = runtimePlayers,
         MaxPlayerCount = Input.MAX_COUNT,
-        // Custom properties for SQL filtering
         CustomLobbyProperties = new[] { LocalPlayerCountManager.TOTAL_PLAYERS_PROP_KEY }
     };
     
@@ -218,19 +169,40 @@ public async Task ConnectWithLocalPlayers(int localPlayerCount)
 }
 ```
 
-## UI Adaptation
+## Shared Components
 
-### Split Screen Setup
+### LocalPlayerAccess Structure
+Links Unity's PlayerInput to Quantum player entities and manages per-player resources:
+
+```csharp
+public class LocalPlayerAccess : MonoBehaviour
+{
+    public bool IsMainLocalPlayer { get; set; }
+    public Camera PlayerCamera { get; private set; }
+    public Canvas PlayerCanvas { get; private set; }
+    public PlayerInput PlayerInput { get; private set; }
+    public int LocalPlayerIndex { get; private set; }
+    
+    public void InitializeLocalPlayer(PlayerViewController playerViewController)
+    {
+        // Configure camera and UI for this local player
+        ConfigureCamera(playerViewController);
+        ConfigureUI(playerViewController);
+        
+        // Set up input handling
+        SetupInputHandling(playerViewController.PlayerRef);
+    }
+}
+```
+
+### Split-Screen Management
+
+Handles viewport configuration for multiple local players:
 
 ```csharp
 public class LocalPlayersConfig : MonoBehaviour
 {
     [SerializeField] private LocalPlayerAccess[] _localPlayerAccesses;
-    
-    public LocalPlayerAccess GetLocalPlayerAccess(int index)
-    {
-        return _localPlayerAccesses[index];
-    }
     
     private void ConfigureSplitScreen()
     {
@@ -250,52 +222,95 @@ public class LocalPlayersConfig : MonoBehaviour
                 break;
         }
     }
+    
+    private Rect CalculateViewportRect(int playerIndex, int totalPlayers)
+    {
+        switch (totalPlayers)
+        {
+            case 1:
+                return new Rect(0, 0, 1, 1);
+            case 2:
+                return playerIndex == 0 
+                    ? new Rect(0, 0.5f, 1, 0.5f) 
+                    : new Rect(0, 0, 1, 0.5f);
+            case 3:
+            case 4:
+                float x = playerIndex % 2 == 0 ? 0 : 0.5f;
+                float y = playerIndex < 2 ? 0.5f : 0;
+                return new Rect(x, y, 0.5f, 0.5f);
+        }
+    }
 }
 ```
 
-## Lobby Events
+## Mode Selection
 
-### Custom Event Handling
+The game can be configured to use either local or online mode:
 
 ```csharp
-public class SportsArenaBrawlerLobbyEvents : MonoBehaviour
+public class LobbyModeSelector : MonoBehaviour
 {
-    void Start()
+    public enum LobbyMode
     {
-        var connection = GetComponent<QuantumMenuConnectionBehaviourSDK>();
-        
-        // Listen for room property updates
-        connection.Client.CallbackMessage.Listen<OnRoomPropertiesUpdateMsg>(msg =>
-        {
-            if (msg.propertiesThatChanged.TryGetValue(
-                LocalPlayerCountManager.TOTAL_PLAYERS_PROP_KEY, out var totalPlayers))
-            {
-                UpdateLobbyUI((int)totalPlayers);
-            }
-        });
+        LocalOnly,      // Couch co-op only
+        OnlineOnly,     // Online with single player per client
+        Hybrid          // Online with multiple local players
     }
     
-    void UpdateLobbyUI(int totalPlayers)
+    [SerializeField] private LobbyMode _lobbyMode = LobbyMode.Hybrid;
+    
+    public void InitializeLobbySystem()
     {
-        // Update UI to show total players across all clients
-        _playerCountText.text = $"Players in Lobby: {totalPlayers}/{Input.MAX_COUNT}";
+        switch (_lobbyMode)
+        {
+            case LobbyMode.LocalOnly:
+                InitializeLocalOnlyLobby();
+                break;
+            case LobbyMode.OnlineOnly:
+                InitializeOnlineLobby(maxLocalPlayers: 1);
+                break;
+            case LobbyMode.Hybrid:
+                InitializeHybridLobby();
+                break;
+        }
     }
 }
 ```
 
 ## Best Practices
 
+### Local Multiplayer
+1. **Device Management**
+   - Cache device references to prevent reassignment
+   - Handle device disconnection gracefully
+   - Support keyboard + multiple gamepads
+
+2. **Player Identification**
+   - Visual indicators (colors, UI elements)
+   - Persistent player numbers/names
+   - Clear spawn positions
+
+### Online Multiplayer
 1. **Always validate total player count** before joining rooms
 2. **Update room properties atomically** to avoid race conditions
 3. **Handle disconnections gracefully** - recalculate totals
 4. **Test with maximum local players** to ensure UI scales properly
 5. **Consider network bandwidth** when multiple local players share connection
-6. **Implement proper input separation** for local players
-7. **Use SQL lobbies** for complex matchmaking criteria
+
+### Shared
+1. **Performance Optimization**
+   - Optimize split-screen rendering
+   - Manage UI duplication efficiently
+   - Consider LOD adjustments per viewport
+
+2. **Input Handling**
+   - Separate input channels per player
+   - Use proper input prefixes
+   - Handle input conflicts
 
 ## Common Issues and Solutions
 
-### Issue: Room Full Despite Available Slots
+### Issue: Room Full Despite Available Slots (Online)
 ```csharp
 // Solution: Check total players, not just client count
 bool CanJoinRoom(Room room, int localPlayerCount)
@@ -324,4 +339,39 @@ public void SetupInputHandling(PlayerRef playerRef)
 }
 ```
 
-This comprehensive local multiplayer lobby system makes Sports Arena Brawler ideal for party games and local competitive play.
+### Issue: Device Assignment Conflicts (Local)
+```csharp
+// Solution: Track device states
+private Dictionary<int, DeviceState> deviceStates;
+
+public void OnDeviceConnected(InputDevice device)
+{
+    if (!IsDeviceAssigned(device))
+    {
+        deviceStates[device.deviceId] = DeviceState.Available;
+        AttemptPlayerJoin(device);
+    }
+}
+```
+
+## Debugging Tools
+
+### Connection Monitor
+```csharp
+public class LobbyDebugInfo : MonoBehaviour
+{
+    void OnGUI()
+    {
+        GUILayout.Label($"Lobby Mode: {currentMode}");
+        GUILayout.Label($"Local Players: {localPlayerCount}");
+        GUILayout.Label($"Total Players in Room: {totalPlayers}/{maxPlayers}");
+        
+        foreach (var player in localPlayers)
+        {
+            GUILayout.Label($"P{player.Index}: {player.DeviceName} - {player.State}");
+        }
+    }
+}
+```
+
+This comprehensive lobby system makes Sports Arena Brawler suitable for various multiplayer scenarios, from casual couch gaming to competitive online play with friends.

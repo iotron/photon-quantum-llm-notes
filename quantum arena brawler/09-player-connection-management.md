@@ -1,12 +1,71 @@
 # Player Connection Management - Sports Arena Brawler
 
-Sports Arena Brawler implements a robust player connection system that handles multiple local players per client, making it unique among the Quantum samples. This chapter covers how the game manages player connections, disconnections, and local player assignments.
+Sports Arena Brawler implements a robust player connection system that handles both **local device connections** and **network connections with multiple local players per client**. This dual approach provides flexibility for various gameplay scenarios.
 
-## Multi-Local Player Architecture
+## Connection Management Architecture
 
-### Player Identification System
+### Local Connection Management
 
-Each client can have multiple local players, requiring careful management of player references:
+Focuses on direct input device management and player sessions within a single game instance.
+
+#### Core Components
+
+##### Device Connection Handler
+```csharp
+public class DeviceConnectionHandler : MonoBehaviour
+{
+    private Dictionary<int, DeviceState> deviceStates = new();
+    private Dictionary<int, LocalPlayerSession> activeSessions = new();
+    
+    public void OnDeviceConnected(InputDevice device)
+    {
+        deviceStates[device.deviceId] = DeviceState.Available;
+        
+        // Check if device should auto-join
+        if (ShouldAutoJoin(device))
+        {
+            AttemptPlayerJoin(device);
+        }
+    }
+    
+    public void OnDeviceDisconnected(InputDevice device)
+    {
+        if (IsAssignedToPlayer(device))
+        {
+            HandlePlayerDisconnect(device);
+        }
+        deviceStates.Remove(device.deviceId);
+    }
+}
+```
+
+##### Local Player Session
+```csharp
+public struct LocalPlayerSession
+{
+    public int PlayerId;
+    public int DeviceId;
+    public PlayerInput Input;
+    public CameraController Camera;
+    public GameObject Character;
+    public QuantumPlayerRef QuantumRef;
+    public ConnectionState State;
+}
+
+public enum ConnectionState
+{
+    Disconnected,
+    Joining,
+    Connected,
+    Leaving
+}
+```
+
+### Network Connection Management
+
+Handles multiple local players per network client, enabling complex scenarios like online play with local friends.
+
+#### Player Identification System
 
 **File: `/Assets/SportsArenaBrawler/Scripts/Player/Local Player/LocalPlayersManager.cs`**
 
@@ -35,142 +94,113 @@ public class LocalPlayersManager : MonoBehaviour
 }
 ```
 
-## Connection Flow
+## Connection Flows
 
-### Initial Connection with Multiple Players
+### Local Device Connection Flow
 
-```csharp
-public class SportsArenaBrawlerConnectionManager : QuantumMenuConnectionBehaviourSDK
-{
-    protected override async Task<ConnectResult> ConnectAsyncInternal(QuantumMenuConnectArgs connectArgs)
-    {
-        // Get local player count from UI
-        int localPlayerCount = _localPlayersCountSelector.GetLastSelectedLocalPlayersCount();
-        
-        // Create runtime players for each local player
-        connectArgs.RuntimePlayers = new RuntimePlayer[localPlayerCount];
-        for (int i = 0; i < localPlayerCount; i++)
-        {
-            connectArgs.RuntimePlayers[i] = new RuntimePlayer
-            {
-                PlayerNickname = GetPlayerNickname(i),
-                PlayerAvatar = GetPlayerAvatar(i),
-                // Custom data for team assignment, etc.
-                CustomData = SerializePlayerPreferences(i)
-            };
-        }
-        
-        // Set up connection with proper player count
-        connectArgs.MaxPlayerCount = Input.MAX_COUNT;
-        
-        return await base.ConnectAsyncInternal(connectArgs);
-    }
-}
-```
+1. **Device Detection**
+   ```csharp
+   PlayerInputManager.instance.onPlayerJoined += OnPlayerJoined;
+   PlayerInputManager.instance.onPlayerLeft += OnPlayerLeft;
+   ```
 
-### Player Slot Allocation
+2. **Player Assignment**
+   ```csharp
+   public void OnPlayerJoined(PlayerInput playerInput)
+   {
+       // Assign next available slot
+       int slot = GetNextAvailableSlot();
+       
+       // Create session
+       var session = new LocalPlayerSession
+       {
+           PlayerId = slot,
+           DeviceId = playerInput.devices[0].deviceId,
+           Input = playerInput,
+           State = ConnectionState.Joining
+       };
+       
+       // Register with Quantum
+       RegisterWithQuantum(session);
+   }
+   ```
 
-The game uses a sophisticated system to allocate player slots across multiple local players:
+3. **Quantum Integration**
+   ```csharp
+   private void RegisterWithQuantum(LocalPlayerSession session)
+   {
+       var playerData = new RuntimePlayer
+       {
+           PlayerNickname = $"Player {session.PlayerId + 1}",
+           LocalPlayerId = session.PlayerId
+       };
+       
+       session.QuantumRef = QuantumRunner.Default.Game.AddPlayer(playerData);
+       session.State = ConnectionState.Connected;
+   }
+   ```
 
-```csharp
-public class PlayerSlotManager : SystemMainThread
-{
-    public override void OnPlayerConnected(Frame f, PlayerRef player)
-    {
-        // Check if this is a local player
-        var localPlayers = f.Game.GetLocalPlayers();
-        if (localPlayers.Contains(player))
-        {
-            // Allocate team slot based on available positions
-            AllocateTeamSlot(f, player);
-            
-            // Create player entity
-            CreatePlayerEntity(f, player);
-        }
-    }
-    
-    private void AllocateTeamSlot(Frame f, PlayerRef player)
-    {
-        // Find best team balance
-        int team1Count = CountPlayersInTeam(f, 0);
-        int team2Count = CountPlayersInTeam(f, 1);
-        
-        int assignedTeam = team1Count <= team2Count ? 0 : 1;
-        
-        // Store team assignment
-        var playerData = f.GetPlayerData(player);
-        playerData.Team = assignedTeam;
-    }
-}
-```
+### Network Connection Flow
 
-## Local Player Access Management
+1. **Initial Connection with Multiple Players**
+   ```csharp
+   public class SportsArenaBrawlerConnectionManager : QuantumMenuConnectionBehaviourSDK
+   {
+       protected override async Task<ConnectResult> ConnectAsyncInternal(QuantumMenuConnectArgs connectArgs)
+       {
+           // Get local player count from UI
+           int localPlayerCount = _localPlayersCountSelector.GetLastSelectedLocalPlayersCount();
+           
+           // Create runtime players for each local player
+           connectArgs.RuntimePlayers = new RuntimePlayer[localPlayerCount];
+           for (int i = 0; i < localPlayerCount; i++)
+           {
+               connectArgs.RuntimePlayers[i] = new RuntimePlayer
+               {
+                   PlayerNickname = GetPlayerNickname(i),
+                   PlayerAvatar = GetPlayerAvatar(i),
+                   CustomData = SerializePlayerPreferences(i)
+               };
+           }
+           
+           return await base.ConnectAsyncInternal(connectArgs);
+       }
+   }
+   ```
 
-### Player-Specific Resources
+2. **Player Slot Allocation**
+   ```csharp
+   public class PlayerSlotManager : SystemMainThread
+   {
+       public override void OnPlayerConnected(Frame f, PlayerRef player)
+       {
+           var localPlayers = f.Game.GetLocalPlayers();
+           if (localPlayers.Contains(player))
+           {
+               // Allocate team slot based on balance
+               AllocateTeamSlot(f, player);
+               
+               // Create player entity
+               CreatePlayerEntity(f, player);
+           }
+       }
+       
+       private void AllocateTeamSlot(Frame f, PlayerRef player)
+       {
+           int team1Count = CountPlayersInTeam(f, 0);
+           int team2Count = CountPlayersInTeam(f, 1);
+           
+           int assignedTeam = team1Count <= team2Count ? 0 : 1;
+           
+           var playerData = f.GetPlayerData(player);
+           playerData.Team = assignedTeam;
+       }
+   }
+   ```
 
-**File: `/Assets/SportsArenaBrawler/Scripts/Player/Local Player/LocalPlayerAccess.cs`**
+## Connection State Management
 
-```csharp
-public class LocalPlayerAccess : MonoBehaviour
-{
-    public bool IsMainLocalPlayer { get; set; }
-    public Camera PlayerCamera { get; private set; }
-    public Canvas PlayerCanvas { get; private set; }
-    public AudioListener PlayerAudioListener { get; private set; }
-    
-    private PlayerViewController _playerViewController;
-    private int _localPlayerIndex;
-    
-    public void InitializeLocalPlayer(PlayerViewController playerViewController)
-    {
-        _playerViewController = playerViewController;
-        _localPlayerIndex = DetermineLocalPlayerIndex(playerViewController.PlayerRef);
-        
-        // Configure player-specific components
-        ConfigureCamera();
-        ConfigureUI();
-        ConfigureAudio();
-        ConfigureInput();
-    }
-    
-    private void ConfigureCamera()
-    {
-        // Set viewport based on player count and index
-        var localPlayerCount = QuantumRunner.Default.Game.GetLocalPlayers().Count;
-        PlayerCamera.rect = CalculateViewportRect(_localPlayerIndex, localPlayerCount);
-        
-        // Only main player gets certain UI elements
-        if (IsMainLocalPlayer)
-        {
-            PlayerCamera.cullingMask |= LayerMask.GetMask("MainUI");
-        }
-    }
-    
-    private Rect CalculateViewportRect(int playerIndex, int totalPlayers)
-    {
-        switch (totalPlayers)
-        {
-            case 1:
-                return new Rect(0, 0, 1, 1);
-            case 2:
-                return playerIndex == 0 
-                    ? new Rect(0, 0.5f, 1, 0.5f) 
-                    : new Rect(0, 0, 1, 0.5f);
-            case 3:
-            case 4:
-                float x = playerIndex % 2 == 0 ? 0 : 0.5f;
-                float y = playerIndex < 2 ? 0.5f : 0;
-                return new Rect(x, y, 0.5f, 0.5f);
-            default:
-                return new Rect(0, 0, 1, 1);
-        }
-    }
-}
-```
-
-## Connection State Monitoring
-
-### Per-Player Connection Status
+### Per-Player Connection Monitoring
 
 ```csharp
 public unsafe class PlayerConnectionMonitor : SystemMainThreadFilter<PlayerConnectionMonitor.Filter>
@@ -197,35 +227,37 @@ public unsafe class PlayerConnectionMonitor : SystemMainThreadFilter<PlayerConne
             
             if (!isConnected)
             {
-                // Player disconnected
-                filter.Link->DisconnectTime = f.Time;
-                f.Events.PlayerDisconnected(playerRef);
-                
-                // Start grace period for reconnection
-                StartReconnectionTimer(f, playerRef);
+                HandleDisconnection(f, filter, playerRef);
             }
             else if (isConnected && !wasConnected)
             {
-                // Player reconnected
-                f.Events.PlayerReconnected(playerRef);
-                HandleReconnection(f, filter);
+                HandleReconnection(f, filter, playerRef);
             }
         }
     }
     
-    private void HandleReconnection(Frame f, ref Filter filter)
+    private void HandleDisconnection(Frame f, ref Filter filter, PlayerRef playerRef)
     {
-        // Restore player state
+        filter.Link->DisconnectTime = f.Time;
+        f.Events.PlayerDisconnected(playerRef);
+        
+        // Start grace period for reconnection
+        StartReconnectionTimer(f, playerRef);
+    }
+    
+    private void HandleReconnection(Frame f, ref Filter filter, PlayerRef playerRef)
+    {
         var timeSinceDisconnect = f.Time - filter.Link->DisconnectTime;
         
         if (timeSinceDisconnect < FP._10) // Within 10 seconds
         {
-            // Keep existing state
+            // Restore existing state
             filter.Link->DisconnectTime = FP._0;
+            f.Events.PlayerReconnected(playerRef);
         }
         else
         {
-            // Reset player position
+            // Reset player
             ResetPlayerToSpawn(f, filter.Entity);
         }
     }
@@ -234,7 +266,7 @@ public unsafe class PlayerConnectionMonitor : SystemMainThreadFilter<PlayerConne
 
 ## Disconnection Handling
 
-### Graceful Disconnection for Local Players
+### Local Player Disconnection
 
 ```csharp
 public class LocalPlayerDisconnectHandler : MonoBehaviour
@@ -249,33 +281,35 @@ public class LocalPlayerDisconnectHandler : MonoBehaviour
         {
             PlayerRef playerRef = localPlayers[localPlayerIndex];
             
-            // Remove player from game
-            game.RemovePlayer(playerRef);
-            
-            // Update local player tracking
-            LocalPlayersManager.Instance.RemoveLocalPlayer(playerRef);
-            
-            // Notify server of updated local player count
-            UpdateLocalPlayerCount();
+            // Cleanup sequence
+            StartCoroutine(GracefulDisconnect(playerRef));
         }
     }
     
-    private void UpdateLocalPlayerCount()
+    private IEnumerator GracefulDisconnect(PlayerRef playerRef)
     {
-        var client = QuantumRunner.Default?.NetworkClient;
-        if (client != null)
+        // Show leaving animation
+        yield return PlayDisconnectAnimation(playerRef);
+        
+        // Remove from game
+        QuantumRunner.Default.Game.RemovePlayer(playerRef);
+        
+        // Update local tracking
+        LocalPlayersManager.Instance.RemoveLocalPlayer(playerRef);
+        
+        // Reconfigure viewports
+        CameraManager.Instance.ReconfigureViewports();
+        
+        // Update room properties if online
+        if (IsOnlineMode())
         {
-            client.LocalPlayer.SetCustomProperties(new PhotonHashtable
-            {
-                { LocalPlayerCountManager.LOCAL_PLAYERS_PROP_KEY, 
-                  QuantumRunner.Default.Game.GetLocalPlayers().Count }
-            });
+            UpdateLocalPlayerCount();
         }
     }
 }
 ```
 
-### Client Disconnection Handling
+### Network Client Disconnection
 
 ```csharp
 public class ClientDisconnectHandler : QuantumCallbacks
@@ -284,27 +318,35 @@ public class ClientDisconnectHandler : QuantumCallbacks
     {
         // Check if entire client disconnected
         var client = game.GetPlayerClient(player);
-        bool hasOtherPlayersFromClient = false;
-        
-        for (int i = 0; i < game.PlayerCount; i++)
-        {
-            if (i != player && game.GetPlayerClient(i) == client)
-            {
-                hasOtherPlayersFromClient = true;
-                break;
-            }
-        }
+        bool hasOtherPlayersFromClient = CheckForOtherPlayersFromClient(game, client, player);
         
         if (!hasOtherPlayersFromClient)
         {
-            // Entire client disconnected, update room properties
+            // Entire client disconnected
             HandleClientDisconnect(client);
         }
+        else
+        {
+            // Just one local player left
+            HandleSinglePlayerDisconnect(player);
+        }
+    }
+    
+    private void HandleClientDisconnect(int clientId)
+    {
+        // Update room total players
+        if (PhotonNetwork.IsMasterClient)
+        {
+            RecalculateTotalPlayers();
+        }
+        
+        // Clean up client-specific resources
+        CleanupClientResources(clientId);
     }
 }
 ```
 
-## Input Assignment
+## Input Assignment System
 
 ### Multi-Player Input Handling
 
@@ -313,6 +355,7 @@ public class LocalPlayerInputHandler : QuantumEntityViewComponent
 {
     private int _localPlayerIndex;
     private string _inputPrefix;
+    private InputDevice _assignedDevice;
     
     public override void OnActivate(Frame frame)
     {
@@ -325,17 +368,24 @@ public class LocalPlayerInputHandler : QuantumEntityViewComponent
         
         if (_localPlayerIndex >= 0)
         {
-            // Set up input prefix for this local player
-            _inputPrefix = _localPlayerIndex == 0 ? "" : $"P{_localPlayerIndex + 1}_";
-            
-            // Subscribe to input polling
-            QuantumCallback.Subscribe(this, (CallbackPollInput callback) => PollInput(callback));
+            SetupLocalInput();
         }
         else
         {
-            // Not a local player, disable input
             enabled = false;
         }
+    }
+    
+    private void SetupLocalInput()
+    {
+        // Get assigned device
+        _assignedDevice = LocalPlayersManager.Instance.GetDeviceForPlayer(_localPlayerIndex);
+        
+        // Set up input prefix for keyboard fallback
+        _inputPrefix = _localPlayerIndex == 0 ? "" : $"P{_localPlayerIndex + 1}_";
+        
+        // Subscribe to input polling
+        QuantumCallback.Subscribe(this, (CallbackPollInput callback) => PollInput(callback));
     }
     
     private void PollInput(CallbackPollInput callback)
@@ -344,14 +394,18 @@ public class LocalPlayerInputHandler : QuantumEntityViewComponent
         
         var input = new Quantum.Input();
         
-        // Read input with player-specific prefix
-        input.Movement = new FPVector2(
-            UnityEngine.Input.GetAxis(_inputPrefix + "Horizontal"),
-            UnityEngine.Input.GetAxis(_inputPrefix + "Vertical")
-        );
-        
-        input.Fire = UnityEngine.Input.GetButton(_inputPrefix + "Fire");
-        input.Jump = UnityEngine.Input.GetButton(_inputPrefix + "Jump");
+        if (_assignedDevice != null)
+        {
+            // Use device-specific input
+            input.Movement = ReadMovementFromDevice(_assignedDevice);
+            input.Actions = ReadActionsFromDevice(_assignedDevice);
+        }
+        else
+        {
+            // Fallback to keyboard with prefix
+            input.Movement = ReadMovementFromKeyboard(_inputPrefix);
+            input.Actions = ReadActionsFromKeyboard(_inputPrefix);
+        }
         
         callback.SetInput(input, DeterministicInputFlags.Repeatable);
     }
@@ -370,6 +424,7 @@ public struct PlayerPersistentData
     public FPVector3 LastPosition;
     public FP Health;
     public AbilityType CurrentAbility;
+    public Dictionary<string, object> CustomData;
 }
 
 public class PlayerReconnectionManager : SystemMainThread
@@ -381,36 +436,57 @@ public class PlayerReconnectionManager : SystemMainThread
         var playerData = f.GetPlayerData(player);
         if (playerData == null) return;
         
-        // Get player entity
-        var filter = f.Filter<PlayerLink, Transform3D, Health, AbilityInventory>();
-        while (filter.NextUnsafe(out var entity, out var link, out var transform, 
-               out var health, out var abilities))
-        {
-            if (link->PlayerRef == player)
-            {
-                // Store persistent data
-                var persistentData = new PlayerPersistentData
-                {
-                    Score = playerData.Score,
-                    Team = playerData.Team,
-                    LastPosition = transform->Position,
-                    Health = health->Current,
-                    CurrentAbility = abilities->CurrentAbility
-                };
-                
-                _disconnectedPlayerData[playerData.ClientId] = persistentData;
-                break;
-            }
-        }
+        // Store persistent data
+        var persistentData = GatherPlayerData(f, player);
+        _disconnectedPlayerData[playerData.ClientId] = persistentData;
+        
+        // Set reconnection timeout
+        SetReconnectionTimeout(playerData.ClientId, 30f); // 30 seconds
     }
     
     public void OnPlayerReconnected(Frame f, PlayerRef player, string clientId)
     {
         if (_disconnectedPlayerData.TryGetValue(clientId, out var persistentData))
         {
-            // Restore player state
             RestorePlayerState(f, player, persistentData);
             _disconnectedPlayerData.Remove(clientId);
+        }
+        else
+        {
+            // New player or timeout expired
+            InitializeNewPlayer(f, player);
+        }
+    }
+}
+```
+
+## Session Continuity
+
+### Between Rounds
+```csharp
+public class SessionContinuityManager : MonoBehaviour
+{
+    private List<LocalPlayerSession> _persistentSessions = new();
+    
+    public void OnRoundEnd()
+    {
+        // Save all active sessions
+        _persistentSessions.Clear();
+        foreach (var session in GetActiveSessions())
+        {
+            _persistentSessions.Add(session);
+        }
+    }
+    
+    public void OnRoundStart()
+    {
+        // Restore sessions
+        foreach (var session in _persistentSessions)
+        {
+            if (IsDeviceStillConnected(session.DeviceId))
+            {
+                RestoreSession(session);
+            }
         }
     }
 }
@@ -440,16 +516,44 @@ public class LocalPlayerNetworkMonitor : MonoBehaviour
             {
                 ShowPlayerConnectionWarning(playerRef, stats);
             }
+            
+            // Handle severe connection issues
+            if (stats.PacketLoss > 0.15f || stats.Ping > 500)
+            {
+                ConsiderPlayerMigration(playerRef);
+            }
         }
     }
-    
-    private void ShowPlayerConnectionWarning(PlayerRef player, NetworkStats stats)
+}
+```
+
+## Error Handling
+
+### Common Issues and Recovery
+
+```csharp
+public class ConnectionErrorHandler : MonoBehaviour
+{
+    public void HandleConnectionError(ConnectionError error, PlayerRef player)
     {
-        var localPlayerAccess = LocalPlayersManager.Instance.GetLocalPlayerAccess(player);
-        if (localPlayerAccess != null)
+        switch (error.Type)
         {
-            // Show warning on specific player's UI
-            localPlayerAccess.ShowConnectionWarning(stats.Ping, stats.PacketLoss);
+            case ConnectionErrorType.DeviceDisconnected:
+                ShowReconnectPrompt(player);
+                EnableAITakeover(player);
+                break;
+                
+            case ConnectionErrorType.NetworkTimeout:
+                StartReconnectionAttempt(player);
+                break;
+                
+            case ConnectionErrorType.SessionFull:
+                ShowSessionFullMessage();
+                break;
+                
+            case ConnectionErrorType.VersionMismatch:
+                ShowUpdateRequiredMessage();
+                break;
         }
     }
 }
@@ -457,41 +561,64 @@ public class LocalPlayerNetworkMonitor : MonoBehaviour
 
 ## Best Practices
 
-1. **Always track local player indices** for proper input and UI assignment
+### Local Connections
+1. **Clear Visual Feedback**
+   - Connection status indicators
+   - Device icons and player colors
+   - Join/leave animations
+
+2. **Robust Device Handling**
+   - Support hot-swapping
+   - Handle battery disconnects
+   - Manage device conflicts
+
+### Network Connections
+1. **Track local player indices** for proper input and UI assignment
 2. **Handle partial client disconnections** when only some local players leave
 3. **Implement reconnection grace periods** appropriate for game type
 4. **Store minimal persistent data** for reconnecting players
 5. **Test with maximum local players** under poor network conditions
-6. **Separate UI elements per player** to avoid confusion
-7. **Consider bandwidth usage** with multiple local players
-8. **Implement proper cleanup** when players disconnect
 
-## Common Patterns
+### Performance
+1. **Input Polling Optimization**
+   - Batch process all local players
+   - Use event-driven input where possible
+   - Align with Quantum simulation
 
-### Dynamic Player Addition
+2. **Resource Management**
+   - Pool player objects
+   - Lazy load player resources
+   - Clean up properly on disconnect
 
+## Debugging Tools
+
+### Connection Monitor
 ```csharp
-public void AddLocalPlayerDuringGame()
+[System.Serializable]
+public class ConnectionDebugInfo
 {
-    var currentLocalPlayers = QuantumRunner.Default.Game.GetLocalPlayers().Count;
-    if (currentLocalPlayers >= Input.MAX_COUNT) return;
-    
-    // Find next available player slot
-    int nextSlot = FindNextAvailableSlot();
-    
-    // Create new runtime player
-    var newPlayer = new RuntimePlayer
+    public void DrawDebugGUI()
     {
-        PlayerNickname = $"Player {currentLocalPlayers + 1}",
-        PlayerAvatar = GetDefaultAvatar()
-    };
-    
-    // Add to game
-    QuantumRunner.Default.Game.AddPlayer(nextSlot, newPlayer);
-    
-    // Update UI for split screen
-    ReconfigureSplitScreen();
+        GUILayout.BeginVertical("box");
+        GUILayout.Label("=== Connection Status ===");
+        
+        // Local connections
+        GUILayout.Label($"Local Players: {GetLocalPlayerCount()}");
+        foreach (var session in GetLocalSessions())
+        {
+            GUILayout.Label($"  P{session.PlayerId}: {session.State} - Device: {session.DeviceId}");
+        }
+        
+        // Network status
+        if (IsOnlineMode())
+        {
+            GUILayout.Label($"Network Ping: {GetAveragePing()}ms");
+            GUILayout.Label($"Packet Loss: {GetPacketLoss():P}");
+        }
+        
+        GUILayout.EndVertical();
+    }
 }
 ```
 
-This comprehensive player connection management system enables Sports Arena Brawler to provide seamless local multiplayer experiences with robust handling of disconnections and reconnections.
+This comprehensive connection management system enables Sports Arena Brawler to seamlessly handle various multiplayer scenarios while maintaining stable and responsive gameplay.
