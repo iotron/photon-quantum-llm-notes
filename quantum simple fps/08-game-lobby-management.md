@@ -1,12 +1,14 @@
 # Game Lobby Management - Quantum Simple FPS
 
+> **Implementation Note**: This project uses the **standard Quantum Menu** framework. The actual implementation consists of a simple MenuUI.cs file. The comprehensive examples below illustrate common FPS lobby patterns that could be implemented using the standard menu system. Only code with file paths marked ✓ represents actual implementation.
+
 Quantum Simple FPS implements a streamlined lobby system optimized for fast-paced first-person shooter gameplay. The game focuses on quick matchmaking and minimal downtime between matches.
 
 ## Lobby Architecture
 
 ### FPS-Specific Menu System
 
-**File: `/Assets/Scripts/UI/MenuUI.cs`**
+**File: `/Assets/Scripts/UI/MenuUI.cs`** ✓
 
 ```csharp
 namespace SimpleFPS

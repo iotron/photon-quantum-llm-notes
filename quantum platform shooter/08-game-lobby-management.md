@@ -1,14 +1,14 @@
 # Game Lobby Management - Quantum Platform Shooter 2D
 
+> **Implementation Note**: For projects using standard Quantum Menu (Platform Shooter, Twin Stick Shooter), code examples are illustrative patterns that could be implemented. Only projects with custom implementations have verified file paths marked with ✓.
+
 Quantum Platform Shooter 2D implements a streamlined lobby system focused on quick matchmaking for 2D platform combat. The game uses the standard Quantum Menu framework with custom UI elements tailored for the platformer genre.
 
 ## Menu System Architecture
 
 ### Custom Menu Configuration
 
-**File: `/Assets/PlatformShooter2D/Menu/QuantumMenuConfig.asset`**
-
-The game uses custom menu prefab variants to maintain the platform shooter aesthetic:
+The game can use custom menu prefab variants to maintain the platform shooter aesthetic. The following is an example implementation:
 
 ```csharp
 public class QuantumMenuToggleGameObjectPlugin : QuantumMenuScreenPlugin

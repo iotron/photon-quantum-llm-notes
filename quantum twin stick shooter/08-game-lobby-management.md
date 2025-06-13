@@ -1,5 +1,7 @@
 # Game Lobby Management - Quantum Twin Stick Shooter
 
+> **Implementation Note**: This project uses the **standard Quantum Menu** framework without custom lobby modifications. The detailed examples below illustrate typical arcade-style patterns that could be implemented with the standard menu. Code snippets without file paths are example patterns, not actual implementations.
+
 ## Overview
 
 Quantum Twin Stick Shooter implements a **wave-based cooperative lobby system** using the standard Quantum Menu framework, optimized for quick drop-in/drop-out multiplayer sessions. The lobby focuses on seamless player joining and difficulty scaling for arcade-style twin-stick action.

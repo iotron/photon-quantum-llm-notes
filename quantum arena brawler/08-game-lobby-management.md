@@ -15,6 +15,8 @@ This mode focuses on instant local play without network requirements, perfect fo
 - Handles player registration and device assignment
 - Coordinates between Unity's Input System and Quantum's player system
 
+**File: `/Assets/SportsArenaBrawler/Scripts/Player/Local Player/LocalPlayersManager.cs`** ✓
+
 ```csharp
 public class LocalPlayersManager : MonoBehaviour
 {
@@ -119,6 +121,8 @@ public class LocalPlayerCountManager : MonoBehaviour, IInRoomCallbacks
 
 #### Custom Connection Behavior
 
+**File: `/Assets/SportsArenaBrawler/Scripts/Menu/SportsArenaBrawlerMenuConnectionBehaviourSDK.cs`** ✓
+
 ```csharp
 public class SportsArenaBrawlerMenuConnectionBehaviourSDK : QuantumMenuConnectionBehaviourSDK
 {
@@ -173,6 +177,8 @@ public async Task ConnectWithLocalPlayers(int localPlayerCount)
 
 ### LocalPlayerAccess Structure
 Links Unity's PlayerInput to Quantum player entities and manages per-player resources:
+
+**File: `/Assets/SportsArenaBrawler/Scripts/Player/Local Player/LocalPlayerAccess.cs`** ✓
 
 ```csharp
 public class LocalPlayerAccess : MonoBehaviour

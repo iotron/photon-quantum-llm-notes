@@ -1,55 +1,128 @@
 # Player Connection Management - Quantum Motor Dome
 
-Quantum Motor Dome implements a robust player connection system for vehicle combat arena gameplay. The system handles player joining, disconnection, and maintains game flow even when players leave mid-match.
+> **Implementation Note**: Motor Dome uses a custom `Matchmaker.cs` class that handles all connection management, replacing the standard Quantum Menu connection system.
 
-## Connection Architecture
+Quantum Motor Dome implements player connection management through its custom Matchmaker system, which provides automatic matchmaking and seamless connection handling.
 
-### Matchmaker Connection Flow
+## Core Implementation
 
-**File: `/Assets/Scripts/Matchmaker.cs`**
+### Matchmaker Architecture
+
+**File: `/Assets/Scripts/Matchmaker.cs`** ✓
 
 ```csharp
-public class Matchmaker : QuantumCallbacks, IConnectionCallbacks, IMatchmakingCallbacks, IInRoomCallbacks
+public class Matchmaker : QuantumCallbacks, IConnectionCallbacks, IMatchmakingCallbacks, IInRoomCallbacks, IOnEventCallback
 {
+    public static Matchmaker Instance { get; private set; }
+    public static RealtimeClient Client { get; private set; }
+
     public static event System.Action OnQuantumGameStart;
     public static event System.Action OnRealtimeJoinedRoom;
     public static event System.Action<Player> OnRealtimePlayerJoined;
     public static event System.Action<Player> OnRealtimePlayerLeft;
-    
-    private void Awake()
+}
+```
+
+## Connection Flow
+
+### 1. Initial Connection
+
+```csharp
+public static void Connect(System.Action<ConnectionStatus> statusUpdatedCallback)
+{
+    if (Client.IsConnected) return;
+
+    onStatusUpdated = statusUpdatedCallback;
+
+    if (Client.ConnectUsingSettings(AppSettings))
     {
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
-        
-        SceneLoader.OnSceneLoadDone += SendData;
-        
-        AppSettings = new AppSettings(PhotonServerSettings.Global.AppSettings);
-        
-        Client = new RealtimeClient();
-        Client.AddCallbackTarget(Instance);
+        onStatusUpdated?.Invoke(new ConnectionStatus("Establishing Connection", State.ConnectingToServer));
     }
-    
-    void IMatchmakingCallbacks.OnJoinedRoom()
+    else
     {
-        onStatusUpdated?.Invoke(new ConnectionStatus("Joined Room", State.JoinedRoom));
-        Log("Joined room");
-        OnRealtimeJoinedRoom?.Invoke();
-        StartQuantumGame();
+        onStatusUpdated?.Invoke(new ConnectionStatus("Unable to Connect", State.Failed));
+        onStatusUpdated = null;
     }
 }
 ```
 
-## Player Initialization
+### 2. Automatic Room Joining
 
-### Runtime Player Setup
+Once connected to master server, the system automatically finds or creates a room:
+
+```csharp
+void IConnectionCallbacks.OnConnectedToMaster()
+{
+    JoinRandomRoomArgs joinRandomParams = new JoinRandomRoomArgs();
+    EnterRoomArgs enterRoomParams = new EnterRoomArgs()
+    {
+        RoomOptions = new RoomOptions()
+        {
+            IsVisible = true,
+            MaxPlayers = maxPlayers,
+            Plugins = new string[] { "QuantumPlugin" },
+            PlayerTtl = PhotonServerSettings.Global.PlayerTtlInSeconds * 1000,
+            EmptyRoomTtl = PhotonServerSettings.Global.EmptyRoomTtlInSeconds * 1000
+        }
+    };
+
+    Client.OpJoinRandomOrCreateRoom(joinRandomParams, enterRoomParams);
+}
+```
+
+## Player Events
+
+### Player Joined
+
+```csharp
+void IInRoomCallbacks.OnPlayerEnteredRoom(Player newPlayer)
+{
+    Log($"Player {newPlayer} entered the room");
+    OnRealtimePlayerJoined?.Invoke(newPlayer);
+}
+```
+
+### Player Left
+
+```csharp
+void IInRoomCallbacks.OnPlayerLeftRoom(Player otherPlayer)
+{
+    Log($"Player {otherPlayer} left the room");
+    OnRealtimePlayerLeft?.Invoke(otherPlayer);
+}
+```
+
+## Connection States
+
+```csharp
+public enum State
+{
+    Undefined = 0,
+    ConnectingToServer,
+    ConnectingToRoom,
+    JoinedRoom,
+    GameStarted,
+    Failed = -1
+}
+
+public struct ConnectionStatus
+{
+    public string Message { get; }
+    public State State { get; }
+}
+```
+
+## Player Data Management
+
+### Sending Player Data
+
+When the game scene loads, player customization data is sent:
 
 ```csharp
 void SendData()
 {
-    // Configure player data with customization
     runtimePlayer.PlayerNickname = LocalData.nickname;
-    
-    // Vehicle colors
+
     Color32 c;
     c = LocalData.primaryColor; 
     runtimePlayer.primaryColor = new ColorRGBA(c.r, c.g, c.b);
@@ -57,444 +130,127 @@ void SendData()
     runtimePlayer.secondaryColor = new ColorRGBA(c.r, c.g, c.b);
     c = LocalData.trailColor; 
     runtimePlayer.trailColor = new ColorRGBA(c.r, c.g, c.b);
-    
-    // Add player to game
+
     QuantumRunner.Default.Game.AddPlayer(runtimePlayer);
-}
-```
-
-### Player Vehicle Creation
-
-```csharp
-public unsafe class PlayerVehicleSpawner : SystemSignalsOnly, ISignalOnPlayerConnected
-{
-    public void OnPlayerConnected(Frame f, PlayerRef player)
-    {
-        var playerData = f.GetPlayerData(player);
-        if (playerData == null) return;
-        
-        // Find spawn point
-        var spawnPoint = GetAvailableSpawnPoint(f, player);
-        
-        // Create vehicle entity
-        var vehiclePrototype = f.FindAsset<EntityPrototype>(playerData.VehiclePrototype);
-        var vehicle = f.Create(vehiclePrototype);
-        
-        // Set player link
-        if (f.Unsafe.TryGetPointer<PlayerLink>(vehicle, out var playerLink))
-        {
-            playerLink->PlayerRef = player;
-        }
-        
-        // Apply customization
-        if (f.Unsafe.TryGetPointer<VehicleCustomization>(vehicle, out var customization))
-        {
-            customization->PrimaryColor = playerData.primaryColor;
-            customization->SecondaryColor = playerData.secondaryColor;
-            customization->TrailColor = playerData.trailColor;
-        }
-        
-        // Position at spawn
-        if (f.Unsafe.TryGetPointer<Transform3D>(vehicle, out var transform))
-        {
-            transform->Position = spawnPoint.Position;
-            transform->Rotation = spawnPoint.Rotation;
-        }
-        
-        // Initialize vehicle stats
-        InitializeVehicleStats(f, vehicle);
-        
-        f.Events.PlayerVehicleSpawned(player, vehicle);
-    }
-}
-```
-
-## Connection State Monitoring
-
-### Player Presence Tracking
-
-```csharp
-public class PlayerConnectionTracker : SystemMainThread
-{
-    private Dictionary<PlayerRef, PlayerConnectionState> connectionStates = new();
-    
-    public struct PlayerConnectionState
-    {
-        public bool IsConnected;
-        public FP LastInputTime;
-        public int MissedInputFrames;
-    }
-    
-    public override void Update(Frame f)
-    {
-        for (PlayerRef player = 0; player < f.PlayerCount; player++)
-        {
-            var inputFlags = f.GetPlayerInputFlags(player);
-            bool isPresent = (inputFlags & DeterministicInputFlags.PlayerNotPresent) == 0;
-            
-            if (!connectionStates.TryGetValue(player, out var state))
-            {
-                state = new PlayerConnectionState();
-            }
-            
-            // Track connection changes
-            if (isPresent != state.IsConnected)
-            {
-                state.IsConnected = isPresent;
-                
-                if (!isPresent)
-                {
-                    HandlePlayerDisconnect(f, player);
-                }
-                else
-                {
-                    HandlePlayerReconnect(f, player);
-                }
-            }
-            
-            // Track input reliability
-            if (isPresent)
-            {
-                if ((inputFlags & DeterministicInputFlags.HasInput) != 0)
-                {
-                    state.LastInputTime = f.Time;
-                    state.MissedInputFrames = 0;
-                }
-                else
-                {
-                    state.MissedInputFrames++;
-                }
-            }
-            
-            connectionStates[player] = state;
-        }
-    }
 }
 ```
 
 ## Disconnection Handling
 
-### Vehicle AI Takeover
+### Graceful Disconnection
 
 ```csharp
-public unsafe class DisconnectedVehicleHandler : SystemMainThread
+public void OnDisconnected(DisconnectCause cause)
 {
-    public override void Update(Frame f)
-    {
-        var filter = f.Filter<PlayerLink, VehicleController>();
-        
-        while (filter.NextUnsafe(out var entity, out var playerLink, out var controller))
-        {
-            var inputFlags = f.GetPlayerInputFlags(playerLink->PlayerRef);
-            bool isDisconnected = (inputFlags & DeterministicInputFlags.PlayerNotPresent) != 0;
-            
-            if (isDisconnected && !controller->IsAIControlled)
-            {
-                ConvertToAI(f, entity, playerLink, controller);
-            }
-        }
-    }
+    LogWarning($"Disconnected: {cause}");
+    QuantumRunner.ShutdownAll();
     
-    private void ConvertToAI(Frame f, EntityRef entity, PlayerLink* playerLink, VehicleController* controller)
+    // Clean up game state
+    InterfaceManager.Instance.elevatorObj.SetActive(false);
+    AudioManager.LerpVolume(AudioManager.Instance.crowdSource, 0f, 0.5f);
+    AudioManager.SetSnapshot("Default", 0.5f);
+    
+    if (CameraController.Instance) 
+        CameraController.Instance.Effects.Unblur(0);
+        
+    // Return to menu
+    UnityEngine.SceneManagement.SceneManager.LoadScene(menuScene);
+
+    if (!isRequeueing)
     {
-        // Mark as AI controlled
-        controller->IsAIControlled = true;
-        playerLink->DisconnectTime = f.Time;
-        
-        // Add basic AI behavior
-        f.Add(entity, new VehicleAI
-        {
-            Behavior = VehicleAI.BehaviorType.Defensive,
-            TargetSelection = VehicleAI.TargetMode.Nearest,
-            AggressionLevel = FP._0_50
-        });
-        
-        // Reduce vehicle performance to balance gameplay
-        if (f.Unsafe.TryGetPointer<VehicleStats>(entity, out var stats))
-        {
-            stats->MaxSpeed *= FP._0_75;
-            stats->Acceleration *= FP._0_75;
-        }
-        
-        f.Events.PlayerDisconnected(playerLink->PlayerRef);
+        UIScreen.activeScreen.BackTo(InterfaceManager.Instance.mainMenuScreen);
+        UIScreen.Focus(InterfaceManager.Instance.playmodeScreen);
     }
 }
 ```
 
-### Cleanup and Resource Management
+### Manual Disconnection
 
 ```csharp
-public class DisconnectionCleanup : QuantumCallbacks
+public static void Disconnect()
 {
-    public override void OnPlayerRemoved(PlayerRef player, QuantumGame game)
-    {
-        // Find and remove player's vehicle
-        var frame = game.Frames.Verified;
-        var filter = frame.Filter<PlayerLink>();
-        
-        while (filter.NextUnsafe(out var entity, out var playerLink))
-        {
-            if (playerLink->PlayerRef == player)
-            {
-                // Store final stats
-                StorePlayerStats(frame, entity, player);
-                
-                // Destroy vehicle after delay
-                ScheduleVehicleRemoval(frame, entity);
-                break;
-            }
-        }
-    }
-    
-    private void ScheduleVehicleRemoval(Frame frame, EntityRef vehicle)
-    {
-        // Add destruction timer component
-        frame.Add(vehicle, new DestructionTimer
-        {
-            TimeRemaining = FP._3, // 3 seconds
-            DestroyOnExpire = true
-        });
-        
-        // Trigger explosion effect
-        frame.Events.VehicleDestroyed(vehicle, true);
-    }
+    QuantumRunner.ShutdownAll();
+    Debug.Log("Shutdown");
+    Client.Disconnect();
 }
 ```
 
-## Player Rejoining
+## Requeue System
 
-### Reconnection Support
+The system supports automatic requeuing for continuous play:
 
 ```csharp
-public class PlayerReconnectionHandler : IConnectionCallbacks
+public static bool isRequeueing = false;
+
+// When requeuing, the disconnection doesn't return to main menu
+// Instead, it maintains the connection for the next match
+```
+
+## Quantum Game Integration
+
+### Starting Quantum
+
+When a room is joined, Quantum is automatically started:
+
+```csharp
+void IMatchmakingCallbacks.OnJoinedRoom()
 {
-    private Dictionary<string, PlayerSessionData> disconnectedPlayers = new();
-    
-    public void OnPlayerDisconnected(Player player)
+    onStatusUpdated?.Invoke(new ConnectionStatus("Joined Room", State.JoinedRoom));
+    Log("Joined room");
+    OnRealtimeJoinedRoom?.Invoke();
+    StartQuantumGame();
+}
+
+static void StartQuantumGame()
+{
+    SessionRunner.Arguments arguments = new SessionRunner.Arguments()
     {
-        // Store session data for potential reconnection
-        var sessionData = new PlayerSessionData
-        {
-            UserId = player.UserId,
-            Nickname = player.NickName,
-            DisconnectTime = Time.time,
-            Score = GetPlayerScore(player),
-            VehicleHealth = GetVehicleHealth(player)
-        };
-        
-        disconnectedPlayers[player.UserId] = sessionData;
-    }
+        RuntimeConfig = Instance.runtimeConfig,
+        GameMode = Photon.Deterministic.DeterministicGameMode.Multiplayer,
+        PlayerCount = Client.CurrentRoom.MaxPlayers,
+        ClientId = Client.LocalPlayer.UserId,
+        Communicator = new QuantumNetworkCommunicator(Client),
+        SessionConfig = QuantumDeterministicSessionConfigAsset.DefaultConfig,
+    };
     
-    public void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps)
-    {
-        // Check if this is a reconnecting player
-        if (disconnectedPlayers.TryGetValue(targetPlayer.UserId, out var sessionData))
-        {
-            float disconnectDuration = Time.time - sessionData.DisconnectTime;
-            
-            if (disconnectDuration < 30f) // 30 second grace period
-            {
-                RestorePlayerSession(targetPlayer, sessionData);
-                disconnectedPlayers.Remove(targetPlayer.UserId);
-            }
-        }
-    }
+    QuantumRunner.StartGame(arguments);
 }
 ```
 
-## Network Quality Management
+## Event System
 
-### Connection Quality Monitoring
+### Custom Events
 
-```csharp
-public class NetworkQualityMonitor : MonoBehaviour
-{
-    [SerializeField] private NetworkIndicatorUI networkIndicator;
-    private float poorConnectionThreshold = 150f; // ms
-    
-    void Update()
-    {
-        if (Matchmaker.Client == null || !Matchmaker.Client.InRoom) return;
-        
-        // Get network stats
-        var stats = QuantumRunner.Default?.Session?.Stats;
-        if (stats == null) return;
-        
-        // Update UI indicator
-        networkIndicator.SetPing(stats.Ping);
-        networkIndicator.SetPacketLoss(stats.PacketLoss);
-        
-        // Show warnings for poor connection
-        if (stats.Ping > poorConnectionThreshold || stats.PacketLoss > 0.05f)
-        {
-            ShowPoorConnectionWarning(stats.Ping, stats.PacketLoss);
-        }
-        
-        // Handle severe connection issues
-        if (stats.Ping > 500 || stats.PacketLoss > 0.15f)
-        {
-            ConsiderDisconnection();
-        }
-    }
-    
-    private void ConsiderDisconnection()
-    {
-        // Show dialog asking if player wants to leave
-        InterfaceManager.Instance.ShowConnectionDialog(
-            "Poor connection detected. Continue playing?",
-            onContinue: () => { /* Keep playing */ },
-            onLeave: () => { Matchmaker.Disconnect(); }
-        );
-    }
-}
-```
-
-## Player State Persistence
-
-### Score and Stats Tracking
+The Matchmaker can handle custom Photon events:
 
 ```csharp
-public struct PlayerPersistentStats
+void IOnEventCallback.OnEvent(EventData photonEvent)
 {
-    public int Score;
-    public int Eliminations;
-    public int Deaths;
-    public FP DamageDealt;
-    public FP DistanceTraveled;
-}
-
-public unsafe class PlayerStatsTracker : SystemMainThreadFilter<PlayerStatsTracker.Filter>
-{
-    public struct Filter
+    if (photonEvent.Code == 0)
     {
-        public EntityRef Entity;
-        public PlayerLink* Link;
-        public VehicleStats* Stats;
-    }
-    
-    private Dictionary<PlayerRef, PlayerPersistentStats> playerStats = new();
-    
-    public override void Update(Frame f, ref Filter filter)
-    {
-        if (!playerStats.TryGetValue(filter.Link->PlayerRef, out var stats))
-        {
-            stats = new PlayerPersistentStats();
-        }
-        
-        // Update stats
-        stats.Score = filter.Stats->Score;
-        stats.Eliminations = filter.Stats->Eliminations;
-        stats.DamageDealt = filter.Stats->TotalDamageDealt;
-        
-        playerStats[filter.Link->PlayerRef] = stats;
-        
-        // Sync to UI
-        if (f.Number % 30 == 0) // Every half second
-        {
-            f.Events.PlayerStatsUpdated(filter.Link->PlayerRef, stats);
-        }
+        StartQuantumGame();
     }
 }
-```
 
-## Connection Events
-
-### Event Broadcasting
-
-```csharp
-void IInRoomCallbacks.OnPlayerEnteredRoom(Player newPlayer)
+public static void SendStartGameEvent()
 {
-    Log($"Player {newPlayer} entered the room");
-    OnRealtimePlayerJoined?.Invoke(newPlayer);
-    
-    // Notify game systems
-    BroadcastPlayerJoined(newPlayer);
-    
-    // Update UI
-    RefreshPlayerList();
-    ShowPlayerJoinedNotification(newPlayer.NickName);
-}
-
-void IInRoomCallbacks.OnPlayerLeftRoom(Player otherPlayer)
-{
-    Log($"Player {otherPlayer} left the room");
-    OnRealtimePlayerLeft?.Invoke(otherPlayer);
-    
-    // Handle mid-game departure
-    if (IsGameInProgress())
-    {
-        ConvertPlayerVehicleToAI(otherPlayer);
-    }
-    
-    // Update UI
-    RefreshPlayerList();
-    ShowPlayerLeftNotification(otherPlayer.NickName);
+    Client.OpRaiseEvent(0, null, new RaiseEventArgs() { Receivers = ReceiverGroup.All }, SendOptions.SendReliable);
 }
 ```
 
 ## Best Practices
 
-1. **Convert disconnected vehicles to AI** to maintain game balance
-2. **Store player stats** for post-game results
-3. **Implement reconnection grace period** for brief disconnects
-4. **Monitor connection quality** and provide feedback
-5. **Clean up resources** after player removal
-6. **Handle edge cases** like host migration
-7. **Test with unstable connections** to ensure robustness
-8. **Provide clear UI feedback** for all connection states
+1. **Automatic Everything** - No manual room selection needed
+2. **Quick Reconnection** - Use the requeue system
+3. **Clean Disconnection** - Always shut down Quantum properly
+4. **Event-Driven Updates** - Subscribe to Matchmaker events
+5. **Simple Player Data** - Only send necessary customization
 
-## Common Patterns
+## Integration Points
 
-### Host Migration
+- **LocalData.cs** - Stores player preferences
+- **InterfaceManager** - UI state management
+- **AudioManager** - Audio feedback
+- **CameraController** - Visual effects
 
-```csharp
-void IInRoomCallbacks.OnMasterClientSwitched(Player newMasterClient)
-{
-    Log($"New host: {newMasterClient.NickName}");
-    
-    // Update UI to show new host
-    UpdateHostIndicator(newMasterClient);
-    
-    // Re-validate game state if needed
-    if (IsInLobby())
-    {
-        ValidateLobbyState();
-    }
-}
-```
-
-### Connection Recovery
-
-```csharp
-public async Task AttemptConnectionRecovery()
-{
-    int retryCount = 0;
-    const int maxRetries = 3;
-    
-    while (retryCount < maxRetries)
-    {
-        try
-        {
-            await Task.Delay(1000 * (retryCount + 1));
-            
-            if (await TryReconnect())
-            {
-                ShowNotification("Connection restored!");
-                return;
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Recovery attempt {retryCount + 1} failed: {e}");
-        }
-        
-        retryCount++;
-    }
-    
-    // Recovery failed
-    ShowError("Unable to restore connection");
-    ReturnToMainMenu();
-}
-```
-
-This comprehensive connection management system ensures Motor Dome maintains smooth gameplay even with player disconnections and network issues.
+This streamlined connection system makes Quantum Motor Dome perfect for quick arcade sessions with minimal setup.

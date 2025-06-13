@@ -1,6 +1,8 @@
 # Player Connection Management - Sports Arena Brawler
 
-Sports Arena Brawler implements a robust player connection system that handles both **local device connections** and **network connections with multiple local players per client**. This dual approach provides flexibility for various gameplay scenarios.
+> **Implementation Note**: The actual implementation is simpler than initially documented. The project uses `LocalPlayerAccess.cs` for local player management and relies on standard Quantum callbacks for connection handling. Code snippets with file paths marked ✓ are from actual project files; others are illustrative examples.
+
+Sports Arena Brawler implements a player connection system that handles multiple local players per client through a simplified architecture.
 
 ## Connection Management Architecture
 

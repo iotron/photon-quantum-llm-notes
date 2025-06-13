@@ -1,6 +1,6 @@
 # Game Lobby Management - Quantum Karts
 
-Quantum Karts implements a racing game lobby system that handles player matchmaking, kart selection, and race initialization. The lobby manages both human players and AI bots to ensure full races.
+Quantum Karts implements a streamlined lobby system using the standard Quantum Menu framework with simple kart customization options. The system focuses on quick matchmaking and straightforward kart selection.
 
 ## Lobby Architecture Overview
 
@@ -8,32 +8,45 @@ Quantum Karts implements a racing game lobby system that handles player matchmak
 
 Quantum Karts uses the standard Quantum Menu system with custom extensions for kart selection:
 
-**File: `/Assets/Scripts/Menu/KartSelector.cs`**
+**File: `/Assets/Scripts/Menu/KartSelector.cs`** ✓
 
 ```csharp
 public class KartSelector : MonoBehaviour
 {
-    [SerializeField] private KartSelectionData[] availableKarts;
-    [SerializeField] private RuntimePlayer playerTemplate;
-    
-    private int selectedKartIndex = 0;
-    
-    public void SelectKart(int index)
+    [SerializeField] private List<KartVisuals> _kartVisuals;
+    [SerializeField] private TMP_Dropdown _visualDropdown;
+    [SerializeField] private List<KartStats> _kartStats;
+    [SerializeField] private TMP_Dropdown _statDropdown;
+    [SerializeField] private QuantumMenuUIMain _quantumMenuUIMain;
+
+    void Start()
     {
-        selectedKartIndex = Mathf.Clamp(index, 0, availableKarts.Length - 1);
-        UpdateKartPreview();
-        
-        // Update runtime player data
-        UpdatePlayerKartSelection();
+        // Populate dropdowns with available options
+        List<TMP_Dropdown.OptionData> visualData = new();
+        List<TMP_Dropdown.OptionData> statsData = new();
+
+        foreach (KartVisuals kv in _kartVisuals)
+        {
+            visualData.Add(new TMP_Dropdown.OptionData(kv.name));
+        }
+
+        foreach (KartStats ks in _kartStats)
+        {
+            statsData.Add(new TMP_Dropdown.OptionData(ks.name));
+        }
+
+        _visualDropdown.AddOptions(visualData);
+        _statDropdown.AddOptions(statsData);
+    }
+
+    public void OnVisualsChange(int index)
+    {
+        _quantumMenuUIMain.ConnectionArgs.RuntimePlayers[0].KartVisuals = _kartVisuals[index];
     }
     
-    private void UpdatePlayerKartSelection()
+    public void OnStatsChange(int index)
     {
-        // Store selected kart in runtime player
-        playerTemplate.PlayerAvatar = availableKarts[selectedKartIndex].KartPrefab;
-        
-        // Store kart properties for matchmaking
-        StoreKartProperties();
+        _quantumMenuUIMain.ConnectionArgs.RuntimePlayers[0].KartStats = _kartStats[index];
     }
 }
 ```
